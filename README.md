@@ -1,2 +1,7 @@
-# backbone-nested-binding
-A Backbone.js addon give you the freedom of nested model and performance of data binding.
+# Backbone Extension
+
+- View Manager
+- View Model Binding
+- Nested Model & Collection
+- Computed values
+- And more...
