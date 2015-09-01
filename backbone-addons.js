@@ -30,6 +30,10 @@ void function( root, $, _, Backbone ) {
 				proto = proto.__proto__;
 			}
 			return result;
+		},
+		setPrototypeOf: function( child, proto ) {
+			child.__proto__ = proto;
+			return child;
 		}
 	} )
 
@@ -65,7 +69,7 @@ void function( root, $, _, Backbone ) {
 
 		var dataBindRegex = /^([0-9a-zA-Z_$]+)(\[([0-9]+)?\])?$/;
 
-		function Model( attrs, options ) {
+		function Model( attrs, options, statics ) {
 
 			if ( this instanceof Model === false ) {
 				var defaults = {};
@@ -82,35 +86,48 @@ void function( root, $, _, Backbone ) {
 					else
 						defaults[ key ] = value;
 				} );
-				return Model.extend( {
+				return Model.extend( _.extend({}, {
 					constructor: function _Model() {
 						Model.apply(this,arguments);
 					},
 					defaults: defaults,
 					relations: relations
-				} );
+				}, options, statics ));
 			}
 
 			var parent;
 			var options = options || {};
 			var attrs = attrs || {};
+			var foundRelatedKey = false;
 
 			for ( var key in attrs ) {
 				if ( attrs[ key ] instanceof BackboneModel || attrs[ key ] instanceof BackboneCollection )
 					attrs[ key ].parent = this;
 			}
-
-			var foundRelatedKey = false;
-			Object.defineProperty( this, '_relatedKey', {
-				get: function() {
-					if ( foundRelatedKey )
-						return foundRelatedKey;
-					if ( this.parent && this.parent.attributes )
-						for ( var key in this.parent.attributes )
-							if ( this.parent.attributes[ key ] === this )
-								return foundRelatedKey = key;
+			Object.defineProperties( this, {
+				'root': {
+					get: function() {
+						var root = this;
+						var parent = this.collection || this.parent;
+						while (parent) {
+							root = parent;
+							parent = parent.collection || parent.parent;
+						}
+						return root;
+					}
+				},
+				'_relatedKey': {
+					get: function() {
+						if ( foundRelatedKey )
+							return foundRelatedKey;
+						if ( this.parent && this.parent.attributes )
+							for ( var key in this.parent.attributes )
+								if ( this.parent.attributes[ key ] === this )
+									return foundRelatedKey = key;
+					}
 				}
-			} );
+			});
+
 			this.on( 'change', function( model, options ) {
 				// If this model is a nested model
 				if ( !(parent = this.parent) )
@@ -125,21 +142,19 @@ void function( root, $, _, Backbone ) {
 					model.parent.changed[ model._relatedKey + '.' + key ] = model.changed[ key ];
 					model.parent.trigger( 'change:' + model._relatedKey + '.' + key, model.parent, model.changed[ key ], options );
 				}
-
-				// Trigger "change:model"
 				model.parent.changed[ model._relatedKey ] = model;
-				model.parent.trigger( 'change:' + model._relatedKey, model.parent, model, options );
 
-				// Finally trigger "change"
-				model.parent.trigger( 'change', model.parent, options );
+				triggerParentChange(model,options);
 			} );
+
+			var triggerParentChange = _.debounce(function( model, options ) {
+				model.parent.trigger( 'change:' + model._relatedKey, model.parent, options );
+				model.parent.trigger( 'change', model.parent, options );
+			});
 
 			BackboneModel.call( this, attrs, options );
 
-			if ( typeof attrs === 'string' || typeof data === 'number' ) {
-				this.set( 'id', data );
-				this.url() && this.fetch();
-			}
+			_.setPrototypeOf( this.attributes, null );
 		}
 		_.extend( Model.prototype, {
 			constructor: Model,
@@ -155,12 +170,11 @@ void function( root, $, _, Backbone ) {
 				}
 
 				var keys = key.split( '.' ),
-					obj = this,
-					a, i, k;
+					obj = this;
 
 				while ( keys.length ) {
-					m = dataBindRegex.exec( keys.shift() );
-					k = m[ 1 ], a = m[ 2 ], i = m[ 3 ];
+					var m = dataBindRegex.exec( keys.shift() );
+					var k = m[ 1 ]; var a = m[ 2 ]; var i = m[ 3 ];
 
 					if ( !k )
 						throw 'Invalid object attribute key';
@@ -198,11 +212,10 @@ void function( root, $, _, Backbone ) {
 				}
 
 				var keys = key.split( '.' ),
-					obj = this,
-					a, m, i, k;
+					obj = this;
 				while ( obj && keys.length ) {
-					m = dataBindRegex.exec( keys.shift() );
-					k = m[ 1 ], a = m[ 2 ], i = m[ 3 ];
+					var m = dataBindRegex.exec( keys.shift() );
+					var k = m[ 1 ]; var a = m[ 2 ]; var i = m[ 3 ];
 
 					if ( !k )
 						throw 'Invalid object attribute key';
@@ -248,39 +261,50 @@ void function( root, $, _, Backbone ) {
 						attrs[ key ] = void 0;
 				}
 				return this.set( attrs, _.extend( {}, options, { unset: true } ) );
+			},
+			toCompactJSON: function() {
+				var attr, obj = Object.create(null,{});
+				for (var key in this.attributes) {
+					attr = this.attributes[ key ];
+					if (attr instanceof Model || attr instanceof Collection)
+						attr = attr.toCompactJSON();
+					if (!_.isEqual(attr, this.defaults[ key ]))
+						obj[key] = attr;
+				}
+				return obj;
 			}
 		});
-		Object.setPrototypeOf( Model.prototype, BackboneModel.prototype );
-		Model.extend = BackboneModel.extend;
+		_.setPrototypeOf( Model.prototype, BackboneModel.prototype );
 		Model.extend = _.compose( BackboneModel.extend, function( options ) {
 			var options = (options || {});
 			var defaults = options.defaults;
+			var relations = (options.relations || {})
 			for (var key in defaults) {
 				if (_(defaults[key] ).isChildPrototypeOf(BackboneModel)) {
-					options.relations || (options.relations == {});
-					options.relations[key] = defaults[key];
+					relations[key] = defaults[key];
 					defaults[key] = {};
 				}
 				if (_(defaults[key] ).isChildPrototypeOf(BackboneCollection)) {
-					options.relations || (options.relations == {});
-					options.relations[key] = defaults[key];
+					relations[key] = defaults[key];
 					defaults[key] = [];
 				}
 			}
 			return options;
-
 		} );
 		return Model;
 	}()
 
 	/* --- Collection --- */
 	Collection = B.Collection = function() {
-		function Collection( models, options ) {
+		function Collection( models, options, statics ) {
 
 			if ( this instanceof Collection === false )
-				return Collection.extend( {
+				return Collection.extend( _.extend( {}, {
+					constructor: function _Collection() {
+						Collection.apply(this,arguments);
+					},
 					model: _.isArray(models) ? models[0] : models
-				} );
+				}, options, statics));
 
 			var parent;
 			var options = options || {};
@@ -337,9 +361,16 @@ void function( root, $, _, Backbone ) {
 		_.extend( Collection.prototype, {
 			comparator: function( model ) {
 				return model.get( 'index' );
+			},
+			toCompactJSON: function() {
+				var models = _(this.models).map(function(model) {
+					return model instanceof BackboneModel ? model.toCompactJSON() : model.toJSON();
+				});
+				models.__proto__ = null;
+				return models;
 			}
 		})
-		Object.setPrototypeOf( Collection.prototype, BackboneCollection.prototype );
+		_.setPrototypeOf( Collection.prototype, BackboneCollection.prototype );
 		Collection.extend = BackboneCollection.extend;
 		return Collection;
 	}()
@@ -364,6 +395,21 @@ void function( root, $, _, Backbone ) {
 						this.template = this.template.match( '<' ) ? this.template.trim() : $( this.template ).html();
 						break;
 				}
+
+			Object.defineProperties( this, {
+				'rootView': {
+					get: function() {
+						var root = this;
+						var parent = this.superView;
+						while (parent) {
+							root = parent;
+							parent = parent.superView;
+						}
+						return root;
+					}
+				}
+			});
+
 			BackboneView.call( this, options );
 			this.el && this.el.parentNode && this.__ready();
 		}
@@ -376,7 +422,6 @@ void function( root, $, _, Backbone ) {
 				this.render();
 				// This function is called right before initialize
 				// So when initialize is called, element HTML is ready to be bound to views
-				this.initSubViews();
 			},
 			setModel: function( model ) {
 				if ( !model )
@@ -396,8 +441,9 @@ void function( root, $, _, Backbone ) {
 				return this;
 			},
 			__ready: function() {
+				this.initSubViews();
+				this.initDataBinding();
 				this.setModel( this.model );
-				this.__dataBinding = new DataBinder( this, this.model, { bindings: _.result( this, 'bindings' ) || [] } );
 				this.ready();
 			},
 			freeze: function() {
@@ -434,6 +480,11 @@ void function( root, $, _, Backbone ) {
 				return this;
 			},
 
+			initDataBinding: function() {
+				if (this.__dataBinding)
+					return;
+				this.__dataBinding = new DataBinder( this, this.model, { bindings: _.result( this, 'bindings' ) || [] } );
+			},
 			initSubViews: function() {
 				var regex = (/^(\w+)(?: (collection|model):(\w+))?\s*>\s*(.*)$/);
 				_.each( this.views, function( view, define ) {
@@ -497,7 +548,7 @@ void function( root, $, _, Backbone ) {
 				return this;
 			}
 		});
-		Object.setPrototypeOf( View.prototype, BackboneView.prototype );
+		_.setPrototypeOf( View.prototype, BackboneView.prototype );
 		View.extend = BackboneView.extend;
 		return View;
 	}()
@@ -518,11 +569,15 @@ void function( root, $, _, Backbone ) {
 		_.extend( CollectionView.prototype , {
 			itemView: View,
 			_reverseOrder: false,
-			__ready: function() {
+			_ensureElement: function() {
+				BackboneViewEnsureElement.call( this );
 				this.__render();
+				// This function is called right before initialize
+				// So when initialize is called, element HTML is ready to be bound to views
 				this.getItemTemplate();
+			},
+			__ready: function() {
 				this.setCollection( this.collection );
-				this.reset();
 				this.ready();
 			},
 			getItemTemplate: function() {
@@ -591,7 +646,7 @@ void function( root, $, _, Backbone ) {
 				return this;
 			}
 		} )
-		Object.setPrototypeOf( CollectionView.prototype, View.prototype );
+		_.setPrototypeOf( CollectionView.prototype, View.prototype );
 		CollectionView.extend = View.extend;
 		return CollectionView;
 	}()
@@ -618,6 +673,7 @@ void function( root, $, _, Backbone ) {
 			}
 			return obj;
 		};
+
 		function DataBinder( view, models, options ) {
 
 			if ( this instanceof DataBinder === false )
@@ -645,7 +701,7 @@ void function( root, $, _, Backbone ) {
 			return this;
 		};
 
-		DataBinder.prototype.__proto__ = Backbone.Events;
+		_.setPrototypeOf( DataBinder.prototype, Backbone.Events );
 
 		_.extend( DataBinder.prototype, {
 
@@ -672,7 +728,7 @@ void function( root, $, _, Backbone ) {
 				}, this );
 
 				var self = this;
-				var binding, $children, $el, syntax, type, value, split, matched, nested, boundAttributes;
+				var binding, $children;
 
 				this.view = view;
 				this.bindings = [];
@@ -710,13 +766,12 @@ void function( root, $, _, Backbone ) {
 
 				function parseBinding( el ) {
 
-					$el = $( el );
-					syntax = ($el.data( 'bind' ) || '').replace( /\s+/g, '' );
+					var $el = $( el );
+					var syntax = ($el.attr( 'data-bind' ) || '').replace( /\s+/g, '' );
 					bindingRegex.lastIndex = 0;
 					$el.removeAttr( 'data-bind' );
 
-					matching: while ( matched = bindingRegex.exec( syntax ) ) {
-
+					matching : while ( matched = bindingRegex.exec( syntax ) ) {
 						type = matched[ 1 ];
 						value = matched[ 2 ];
 
@@ -730,14 +785,22 @@ void function( root, $, _, Backbone ) {
 							else
 								type = 'text';
 
+						if ( type == 'model' ) {
+							_.defer(function( view, value, template ) {
+								console.log(value,view)
+								var model = view.model.get(value);
+								new View({ el: el, template: template, model: model });
+							}, view, value, el.innerHTML);
+
+							el.innerHTML = '';
+							continue matching;
+						}
 						if ( type == 'collection' ) {
-							var cl = a = view.model.get( value )
-							new CollectionView( {
-								el: el,
-								template: el.innerHTML,
-								collection: cl
-							} );
-							cl.trigger( 'reset' );
+							_.defer(function( view, value, template ) {
+								var collection =  view.model.get( value )
+								new CollectionView( { el: el, template: template, collection: collection } );
+							}, view, value, el.innerHTML);
+
 							el.innerHTML = '';
 							continue matching;
 						}
@@ -896,5 +959,7 @@ void function( root, $, _, Backbone ) {
 
 		return DataBinder;
 	}()
+
+	_.extend(Backbone,B)
 
 }( this, jQuery, _, Backbone );

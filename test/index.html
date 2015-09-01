@@ -29,29 +29,29 @@
 
 <script>
 
-//	app = new B.View({
-//		el: '#app',
-//		model: new (B.Model({
-//			title: "Hello",
-//			tasks: B.Collection([
-//				B.Model({
-//					name: 'A very first item',
-//					items: B.Collection([
-//						B.Model({
-//							name: 'item1'
-//						})
-//					])
-//				})
-//			])
-//		})),
-//		events: {
-//			'change .task-input': function( e ) {
-//				this.model.get('tasks').add({ name: e.target.value });
-//				e.target.value = '';
-//				console.log('dsad')
-//			}
-//		}
-//	});
+	app = new B.View({
+		el: '#app',
+		model: new (B.Model({
+			title: "Hello",
+			tasks: B.Collection([
+				B.Model({
+					name: 'A very first item',
+					items: B.Collection([
+						B.Model({
+							name: 'item1'
+						})
+					])
+				})
+			])
+		})),
+		events: {
+			'change .task-input': function( e ) {
+				this.model.get('tasks').add({ name: e.target.value });
+				e.target.value = '';
+				console.log('dsad')
+			}
+		}
+	});
 
 </script>
 
