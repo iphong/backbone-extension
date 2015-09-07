@@ -23,36 +23,63 @@
 <script src="../vendor/underscore.js"></script>
 <script src="../vendor/backbone.js"></script>
 
-<script src="../vendor/backbone-nested-models.js"></script>
+<!--<script src="../vendor/backbone-nested-models.js"></script>-->
+<!--<script src="../backbone-addons.js"></script>-->
 
-<script src="../backbone-addons.js"></script>
+<script src="../model.js"></script>
 
 <script>
 
-	app = new B.View({
-		el: '#app',
-		model: new (B.Model({
-			title: "Hello",
-			tasks: B.Collection([
-				B.Model({
-					name: 'A very first item',
-					items: B.Collection([
-						B.Model({
-							name: 'item1'
-						})
-					])
-				})
-			])
-		})),
-		events: {
-			'change .task-input': function( e ) {
-				this.model.get('tasks').add({ name: e.target.value });
-				e.target.value = '';
-				console.log('dsad')
-			}
-		}
+	var AddressBook = B.Model({
+		entries: B.Collection([
+			B.Model({
+				favorite: false,
+				name: B.Model({
+					first: '',
+					last: '',
+					full: B.Compute(['first','last'], function(first,last) {
+						return first + ' ' + last;
+					}),
+					username: B.Compute(['full'], function(fullname) {
+						return fullname.toLowerCase().replace(/\s+/g,'_')
+					})
+				}),
+				phones: B.Collection( B.Model({
+					type: 'home',
+					number: B.Compute({
+						get: function( value ) {
+							return value;
+						},
+						set: function(value) {
+							return (value);
+						}
+					})
+				})),
+				addresses: B.Collection([
+					B.Model({
+						address: '',
+						city: '',
+						state: 'CA',
+						zipcode: 'CA',
+						country: 'USA'
+					})
+				]),
+				notes: B.Collection(B.Model({
+					time: B.Compute ({
+						init: function() {
+							return _.now();
+						}
+					}),
+					memo: ''
+				}))
+			})
+		])
 	});
 
+	var a = new AddressBook;
+	a.on('all', function(type) {
+		console.log(type)
+	})
 </script>
 
 </body>

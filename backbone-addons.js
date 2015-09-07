@@ -67,7 +67,7 @@ void function( root, $, _, Backbone ) {
 	/* --- Model --- */
 	Model = B.Model = function() {
 
-		var dataBindRegex = /^([0-9a-zA-Z_$]+)(\[([0-9]+)?\])?$/;
+		var attrRegex = /^([0-9a-zA-Z_$]+)(\[([0-9]+)?\])?$/;
 
 		function Model( attrs, options, statics ) {
 
@@ -173,7 +173,7 @@ void function( root, $, _, Backbone ) {
 					obj = this;
 
 				while ( keys.length ) {
-					var m = dataBindRegex.exec( keys.shift() );
+					var m = attrRegex.exec( keys.shift() );
 					var k = m[ 1 ]; var a = m[ 2 ]; var i = m[ 3 ];
 
 					if ( !k )
@@ -214,7 +214,7 @@ void function( root, $, _, Backbone ) {
 				var keys = key.split( '.' ),
 					obj = this;
 				while ( obj && keys.length ) {
-					var m = dataBindRegex.exec( keys.shift() );
+					var m = attrRegex.exec( keys.shift() );
 					var k = m[ 1 ]; var a = m[ 2 ]; var i = m[ 3 ];
 
 					if ( !k )
