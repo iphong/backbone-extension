@@ -22,6 +22,8 @@ void function(root, factory) {
 }(this, function (root, B, _, Backbone) {
 
 	var Model, Collection, Compute;
+	var BackboneModel = Backbone.Model;
+	var BackboneCollection = Backbone.Collection;
 
 	/* --- Compute --- */
 	Compute = B.Compute = function() {
@@ -61,10 +63,23 @@ void function(root, factory) {
 				return Model.create.apply(null, arguments);
 			_.extend(this, _.pick(options, '_parent', '_relatedKey'))
 			_.each(this.computes, this._registerComputeValue, this)
-			Backbone.Model.apply(this, arguments);
+			Object.defineProperties( this, {
+				'root': {
+					get: function() {
+						var root = this;
+						var parent = this.collection || this._parent;
+						while (parent) {
+							root = parent;
+							parent = parent.collection || parent._parent;
+						}
+						return root;
+					}
+				}
+			});
+			BackboneModel.apply(this, arguments);
 		}
 
-		Model.prototype.__proto__ = Backbone.Model.prototype;
+		Model.prototype.__proto__ = BackboneModel.prototype;
 
 		// prototypes
 		_.extend(Model.prototype, {
@@ -77,10 +92,10 @@ void function(root, factory) {
 				var regex = /(\w+)(?:\[([0-9]+)\])?/g;
 				var match;
 				while ( match = regex.exec(key) ) {
-					value = value instanceof Backbone.Model ? getComputedValue(value, match[ 1 ]) :
+					value = value instanceof BackboneModel ? getComputedValue(value, match[ 1 ]) :
 						typeof value == 'object' ? value[ match[ 1 ] ] : undefined;
 					if ( match[ 2 ] )
-						value = value instanceof Backbone.Collection ? value.at(match[ 2 ]) : value[ match[ 2 ] ];
+						value = value instanceof BackboneCollection ? value.at(match[ 2 ]) : value[ match[ 2 ] ];
 				}
 				return value;
 			},
@@ -189,14 +204,14 @@ void function(root, factory) {
 					var getAttr = keys.join('.');
 					if ( !setAttr[ 2 ] ) {
 						var setter = this.get(getAttr);
-						if ( setter instanceof Backbone.Model )
+						if ( setter instanceof BackboneModel )
 							setter.set(setAttr[ 1 ], val, options);
 						else if ( typeof setter === 'object' )
 							setter[ setAttr[ 1 ] ] = val;
 						return this;
 					}
 					var collection = this.get(getAttr + '.' + setAttr[ 1 ]);
-					if ( collection instanceof Backbone.Collection )
+					if ( collection instanceof BackboneCollection )
 						collection.at(parseInt(setAttr[ 2 ])).set(val, options)
 					else if ( typeof setter === 'object' )
 						collection[ parseInt(setAttr[ 2 ]) ] = val;
@@ -239,7 +254,7 @@ void function(root, factory) {
 				// For each `set` attribute, update or delete the current value.
 				for ( attr in attrs ) {
 					if ( this.computes[ attr ] ) {
-						val = getComputedValue(this, attr);
+						//val = getComputedValue(this, attr);
 						this.computes[ attr ].set.call(this, val, options);
 					}
 					else {
@@ -283,9 +298,9 @@ void function(root, factory) {
 			clear: function ( options ) {
 				var attrs = {};
 				for ( var key in this.attributes ) {
-					if ( this.attributes[ key ] instanceof Backbone.Model )
+					if ( this.attributes[ key ] instanceof BackboneModel )
 						this.attributes[ key ].clear(options);
-					else if ( this.attributes[ key ] instanceof Backbone.Collection )
+					else if ( this.attributes[ key ] instanceof BackboneCollection )
 						this.attributes[ key ].invoke('clear', options),
 							this.attributes[ key ].reset([]);
 					else
@@ -355,11 +370,11 @@ void function(root, factory) {
 				var relations = {};
 				var computes = {};
 				for ( var attr in attrs ) {
-					if ( isChildPrototypeOf(attrs[ attr ], Backbone.Model) ) {
+					if ( isChildPrototypeOf(attrs[ attr ], BackboneModel) ) {
 						relations[ attr ] = attrs[ attr ];
 						defaults[ attr ] = {};
 					}
-					else if ( isChildPrototypeOf(attrs[ attr ], Backbone.Collection) ) {
+					else if ( isChildPrototypeOf(attrs[ attr ], BackboneCollection) ) {
 						relations[ attr ] = attrs[ attr ];
 						defaults[ attr ] = [];
 					}
@@ -375,7 +390,7 @@ void function(root, factory) {
 				}), statics);
 			},
 			extend: function () {
-				return Backbone.Model.extend.apply(Model, arguments)
+				return BackboneModel.extend.apply(Model, arguments)
 			}
 		})
 
@@ -392,10 +407,10 @@ void function(root, factory) {
 			this.on('change', this._triggerParentChange)
 			this.on('add', this._triggerParentChange)
 			this.on('remove', this._triggerParentChange)
-			Backbone.Collection.apply(this, arguments)
+			BackboneCollection.apply(this, arguments)
 		}
 
-		Collection.prototype.__proto__ = Backbone.Collection.prototype;
+		Collection.prototype.__proto__ = BackboneCollection.prototype;
 
 		// prototypes
 		_.extend(Collection.prototype, {
@@ -439,7 +454,7 @@ void function(root, factory) {
 			resetRelations: function ( options ) {
 				_.each(this.models, function ( model ) {
 					_.each(model.relations, function ( rel, key ) {
-						if ( model.get(key) instanceof Backbone.Collection ) {
+						if ( model.get(key) instanceof BackboneCollection ) {
 							model.get(key).trigger('reset', model, options);
 						}
 					});
@@ -458,6 +473,16 @@ void function(root, factory) {
 					this.resetRelations(options);
 				}
 				return this;
+			},
+			comparator: function( model ) {
+				return model.get( 'index' );
+			},
+			toCompactJSON: function() {
+				var models = _(this.models).map(function(model) {
+					return model instanceof BackboneModel ? model.toCompactJSON() : model.toJSON();
+				});
+				models.__proto__ = null;
+				return models;
 			}
 		})
 		// statics
@@ -468,7 +493,7 @@ void function(root, factory) {
 				}), statics)
 			},
 			extend: function () {
-				return Backbone.Collection.extend.apply(Collection, arguments)
+				return BackboneCollection.extend.apply(Collection, arguments)
 			}
 		})
 
