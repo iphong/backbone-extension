@@ -1,15 +1,15 @@
-void function(root, factory) {
+void function ( root, factory ) {
 
 	// Set up Backbone appropriately for the environment. Start with AMD.
-	if (typeof define === 'function' && define.amd) {
-		define(['underscore', 'backbone', 'exports'], function(_, Backbone, exports) {
+	if ( typeof define === 'function' && define.amd ) {
+		define([ 'underscore', 'backbone', 'exports' ], function ( _, Backbone, exports ) {
 			// Export global even in AMD case in case this script is loaded with
 			// others that may still expect a global Backbone.
 			root.B = factory(root, exports, _, Backbone);
 		});
 
 		// Next for Node.js or CommonJS.
-	} else if (typeof exports !== 'undefined') {
+	} else if ( typeof exports !== 'undefined' ) {
 		var _ = require('underscore');
 		var Backbone = require('backbone');
 		factory(root, exports, _, Backbone);
@@ -19,14 +19,42 @@ void function(root, factory) {
 		root.B = factory(root, {}, root._, root.Backbone);
 	}
 
-}(this, function (root, B, _, Backbone) {
+}(this, function ( root, B, _, Backbone ) {
 
 	var Model, Collection, Compute;
 	var BackboneModel = Backbone.Model;
 	var BackboneCollection = Backbone.Collection;
 
+	_.mixin({
+		isPrototypeOf: function( child, parent ) {
+			if ( !child || !parent )
+				return false;
+			var result = false;
+			var proto = child.prototype;
+			while ( proto ) {
+				if ( proto == parent.prototype ) {
+					result = true;
+					break;
+				}
+				proto = proto.__proto__;
+			}
+			return result;
+		},
+		setPrototypeOf: function( child, prototype ) {
+			if (_.isFunction(Object.setPrototypeOf))
+				Object.setPrototypeOf(child.prototype || child, prototype);
+			else
+				(child.prototype || child).__proto__ = prototype;
+			return child
+		},
+		extendPrototype: function( child, prototype ) {
+			_.extend(child.prototype, prototype)
+			return child
+		},
+	});
+
 	/* --- Compute --- */
-	Compute = B.Compute = function() {
+	Compute = B.Compute = function () {
 
 		function Compute ( deps, options ) {
 			if ( !(this instanceof Compute) )
@@ -63,12 +91,12 @@ void function(root, factory) {
 				return Model.create.apply(null, arguments);
 			_.extend(this, _.pick(options, '_parent', '_relatedKey'))
 			_.each(this.computes, this._registerComputeValue, this)
-			Object.defineProperties( this, {
+			Object.defineProperties(this, {
 				'root': {
-					get: function() {
+					get: function () {
 						var root = this;
 						var parent = this.collection || this._parent;
-						while (parent) {
+						while ( parent ) {
 							root = parent;
 							parent = parent.collection || parent._parent;
 						}
@@ -86,6 +114,7 @@ void function(root, factory) {
 
 			relations: {},
 			computes: {},
+			defaults: {},
 
 			get: function ( key ) {
 				var value = this;
@@ -93,7 +122,7 @@ void function(root, factory) {
 				var match;
 				while ( match = regex.exec(key) ) {
 					value = value instanceof BackboneModel ? getComputedValue(value, match[ 1 ]) :
-						typeof value == 'object' ? value[ match[ 1 ] ] : undefined;
+					        typeof value == 'object' ? value[ match[ 1 ] ] : undefined;
 					if ( match[ 2 ] )
 						value = value instanceof BackboneCollection ? value.at(match[ 2 ]) : value[ match[ 2 ] ];
 				}
@@ -105,8 +134,8 @@ void function(root, factory) {
 			//
 			setRelation: function ( attr, val, options ) {
 				var relation = this.attributes[ attr ],
-					id = this.idAttribute || "id",
-					modelToSet, modelsToAdd = [], modelsToRemove = [];
+				    id = this.idAttribute || "id",
+				    modelToSet, modelsToAdd = [], modelsToRemove = [];
 
 				if ( options.unset && relation ) delete relation.parent;
 
@@ -254,8 +283,8 @@ void function(root, factory) {
 				// For each `set` attribute, update or delete the current value.
 				for ( attr in attrs ) {
 					if ( this.computes[ attr ] ) {
-						//val = getComputedValue(this, attr);
-						this.computes[ attr ].set.call(this, val, options);
+						val = attrs[ attr ]
+						val = this.computes[ attr ].set.call(this, val, options);
 					}
 					else {
 						val = attrs[ attr ];
@@ -308,7 +337,7 @@ void function(root, factory) {
 				}
 				return this.set(attrs, _.extend({}, options, { unset: true }));
 			},
-			toJSON: function ( options ) {
+			toJSON2: function ( options ) {
 				var attrs = _.clone(this.attributes);
 				attrs.__proto__ = null;
 
@@ -322,14 +351,37 @@ void function(root, factory) {
 
 				return attrs;
 			},
-			toCompactJSON: function () {
+			toJSON: function () {
 				var attr, obj = Object.create(null, {});
 				for ( var key in this.attributes ) {
 					attr = this.attributes[ key ];
-					if ( attr instanceof Model || attr instanceof Collection )
-						attr = attr.toCompactJSON();
-					if ( !_.isEqual(attr, this.defaults[ key ]) )
+					if ( attr instanceof BackboneModel || attr instanceof BackboneCollection )
+						attr = attr.toJSON();
+					if (attr instanceof Compute)
+						attr = attr.get.call(this);
+					if ( _.isObject(attr) )
+						attr = _.clone(attr);
+					obj[ key ] = attr;
+				}
+				return obj;
+			},
+			toCompactJSON: function () {
+				var attr, obj = Object.create(null, {});
+				for ( var key in this.attributes ) {
+					if ( this.attributes.hasOwnProperty(key) ) {
+						attr = this.attributes[ key ];
+						if ( attr instanceof Model || attr instanceof Collection )
+							attr = attr.toCompactJSON();
+						else if ( attr instanceof BackboneModel || attr instanceof BackboneCollection )
+							attr = attr.toJSON();
+
+						if (attr instanceof Compute)
+							continue;
+						if ( _.isEqual(attr, this.defaults[ key ]))
+							continue;
+
 						obj[ key ] = attr;
+					}
 				}
 				return obj;
 			},
@@ -350,17 +402,50 @@ void function(root, factory) {
 				//parent.changed[ this._relatedKey ] = this;
 				parent.changed[ this._relatedKey ] = undefined;
 
-				parent.trigger('change:' + this._relatedKey, parent, options);
+				parent.trigger('change:' + this._relatedKey, parent, this, options);
 				parent.trigger('change', parent, options);
 				parent._triggerParentChange(options);
 			},
 			_registerComputeValue: function ( compute, attr ) {
-				_.each(compute.deps, function ( dep ) {
-					this.on('change:' + dep, function ( model, value, options ) {
-						model.changed[ attr ] = model.get(attr);
-						model.trigger('change:' + attr, model, model.changed[ attr ], options)
+				_.each(compute.deps, function ( depAttr ) {
+					this.on('change:' + depAttr, function ( model, value, options ) {
+						var value = model.get(depAttr);
+						if ( value instanceof BackboneModel || value instanceof Collection ) {
+							model.changed[ attr ] = undefined;
+							_.each(value.changed, function ( subValue, subAttr ) {
+								model.changed[ subAttr ] = subValue;
+								model.trigger('change:' + attr + '.' + subAttr, model, subValue, options)
+							})
+						}
+						else {
+							model.changed[ attr ] = value;
+						}
+						model.trigger('change:' + attr, model, value, options)
+						model.trigger('change', model, options)
 					})
 				}, this)
+			},
+			alias: function ( model ) {
+				for ( var attr in model.attributes ) {
+					if ( model.attributes[ attr ] instanceof BackboneModel ) {
+						if ( !this.attributes.hasOwnProperty(attr) || !(this.attributes[ attr ] instanceof BackboneModel) || !(this.attributes[ attr ] instanceof BackboneCollection) ) {
+							this.attributes[ attr ] = new Model(this.attributes[ attr ], { _parent: this, _relatedKey: attr });
+						}
+						this.attributes[ attr ].alias(model.attributes[ attr ])
+					}
+				}
+				this._alias = model;
+				this.attributes.__proto__ = model.attributes;
+				this.defaults = _.extend({}, model.defaults, this.defaults);
+				this.relations = _.extend({}, model.relations, this.relations);
+				this.computes = _.extend({}, model.computes, this.computes);
+				//this.on('change', function () {
+				//	_.each(this.changed, function ( val, attr ) {
+				//		console.log('check target attr',model.has(attr))
+				//		model.has(attr) || model.set(attr, val)
+				//	})
+				//})
+				return this;
 			}
 		})
 		// statics
@@ -398,7 +483,7 @@ void function(root, factory) {
 	}();
 
 	/* --- Collection --- */
-	Collection = B.Collection = function() {
+	Collection = B.Collection = function () {
 
 		function Collection ( models, options ) {
 			if ( !(this instanceof Collection) )
@@ -417,14 +502,14 @@ void function(root, factory) {
 
 			model: Model,
 
-			_triggerParentChange: function( model, options ) {
+			_triggerParentChange: function ( model, options ) {
 				var parent = this._parent;
 				if ( !parent ) return;
 
 				// If this change event is triggered by one of its child model
 				if ( model && model.collection ) {
 
-					var modelIndex = model.collection.indexOf( model );
+					var modelIndex = model.collection.indexOf(model);
 
 					parent.changed = {};
 					_.extend(options, { chained: true })
@@ -434,22 +519,22 @@ void function(root, factory) {
 
 						// Trigger "change:collection[n].child"
 						parent.changed[ this._relatedKey + '[' + modelIndex + '].' + key ] = model.changed[ key ];
-						parent.trigger( 'change:' + this._relatedKey + '[' + modelIndex + '].' + key, parent, model.changed[ key ], options );
+						parent.trigger('change:' + this._relatedKey + '[' + modelIndex + '].' + key, parent, model.changed[ key ], options);
 
 						// Trigger "change:collection.child"
 						parent.changed[ this._relatedKey + '.' + key ] = model.changed[ key ];
-						parent.trigger( 'change:' + this._relatedKey + '.' + key, parent, model.changed[ key ], options );
+						parent.trigger('change:' + this._relatedKey + '.' + key, parent, model.changed[ key ], options);
 					}
 
 					// Trigger "change:collection"
 					//parent.changed[ this._relatedKey ] = this;
 					parent.changed[ this._relatedKey ] = undefined;
-					parent.trigger( 'change:' + this._relatedKey, parent, options );
+					parent.trigger('change:' + this._relatedKey, parent, options);
 					parent._triggerParentChange(options);
 				}
 
 				// Finally trigger "change"
-				parent.trigger( 'change', parent, options );
+				parent.trigger('change', parent, options);
 			},
 			resetRelations: function ( options ) {
 				_.each(this.models, function ( model ) {
@@ -474,23 +559,51 @@ void function(root, factory) {
 				}
 				return this;
 			},
-			comparator: function( model ) {
-				return model.get( 'index' );
+			comparator: function ( model ) {
+				return model.get('index');
 			},
-			toCompactJSON: function() {
-				var models = _(this.models).map(function(model) {
+			toCompactJSON: function () {
+				var models = _(this.models).map(function ( model ) {
 					return model instanceof BackboneModel ? model.toCompactJSON() : model.toJSON();
 				});
 				models.__proto__ = null;
 				return models;
+			},
+			_prepareModel: function( attrs, options ) {
+				if (attrs instanceof Model)
+					return attrs;
+				options = options ? _.clone(options) : {};
+				options.collection = this;
+
+				var modelClass = this.model;
+				if (attrs._rel && this.relations[attrs._rel])
+					modelClass = this.relations[attrs._rel];
+				var model = new modelClass(attrs, options);
+				if (!model.validationError) return model;
+				this.trigger('invalid', this, model.validationError, options);
+				return false;
 			}
 		})
 		// statics
 		_.extend(Collection, {
 			create: function ( models, protos, statics ) {
-				return Collection.extend(_.extend({}, protos, {
-					model: _.isArray(models) ? models[ 0 ] : models
-				}), statics)
+				if ( _.isArray(models) || _.isPrototypeOf(models, Model))
+					return Collection.extend(_.extend({}, protos, {
+						model: _.isArray(models) ? models[ 0 ] : models
+					}), statics);
+
+				else if ( _.isObject(models)) {
+					var newCollection = Collection.extend(_.extend({}, protos, {
+						relations: models
+					}));
+					//_.each(newCollection.prototype.relations, function( model, rel ) {
+					//	model.prototype.defaults._rel = rel;
+					//});
+					return newCollection;
+				}
+
+				else
+					return Collection.extend();
 			},
 			extend: function () {
 				return BackboneCollection.extend.apply(Collection, arguments)
@@ -502,15 +615,16 @@ void function(root, factory) {
 
 	/* --- Utils --- */
 	function getComputedValue ( model, key ) {
-		if (model.computes && model.computes[ key ]) {
+		if ( model.computes && model.computes[ key ] ) {
 			var compute = model.computes[ key ];
-			var deps = _(compute.deps).map(function( dep ) {
-				return getComputedValue(model,dep);
+			var deps = _(compute.deps).map(function ( dep ) {
+				return getComputedValue(model, dep);
 			})
-			return compute.get.apply(model,deps);
+			return compute.get.apply(model, deps);
 		}
 		return model.attributes[ key ];
 	}
+
 	function isChildPrototypeOf ( child, parent ) {
 		if ( !child || !parent )
 			return false;
