@@ -1,5 +1,1 @@
-# Backbone Extension
-
-1. [Models](https://github.com/iphong/backbone-extension/wiki/Models)
-2. [Views](https://github.com/iphong/backbone-extension/wiki/Views)
-3. [Bindings](https://github.com/iphong/backbone-extension/wiki/Bindings)
+This repository is relocated to https://github.com/iphong/backbone-x
